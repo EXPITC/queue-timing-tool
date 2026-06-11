@@ -389,9 +389,23 @@ function fmtCd(ms) {
   return pad(s)+'.'+pad3(r)+'s';
 }
 
+// ── URL helpers ───────────────────────────────────────────────────────────────
+function normalizeURL(raw) {
+  const s = raw.trim();
+  if (!s) return null;
+  // Already has a scheme — only allow http/https
+  if (/^https?:\/\//i.test(s)) {
+    try { new URL(s); return s; } catch { return null; }
+  }
+  // Looks like a bare hostname or path (no scheme) — prepend https://
+  const withScheme = 'https://' + s;
+  try { new URL(withScheme); return withScheme; } catch { return null; }
+}
+
 // ── Config parsing ────────────────────────────────────────────────────────────
 function parseConfig() {
-  const url   = document.getElementById('url-input').value.trim();
+  const rawUrl = document.getElementById('url-input').value.trim();
+  const url    = normalizeURL(rawUrl);
   const date  = document.getElementById('target-date').value;
   const time  = document.getElementById('target-time').value;
   const ms    = parseInt(document.getElementById('target-ms').value) || 0;

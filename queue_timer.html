@@ -145,6 +145,19 @@
 
   .footer { font-size:11px; color:var(--text-dim); text-align:center; padding-bottom:8px; letter-spacing:.04em; }
 
+  /* ── Start button ───────────────────────────────────────────────────────── */
+  .start-btn {
+    width: 100%; padding: 15px 20px; font-size: 16px; font-weight: 700; letter-spacing: .04em;
+    cursor: pointer; border-radius: var(--radius-sm); border: 2px solid var(--purple);
+    background: var(--purple-dim); color: var(--purple); margin-top: 14px;
+    transition: background .15s, box-shadow .15s, transform .1s;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .start-btn:hover:not(:disabled) { background: rgba(162,89,255,.22); box-shadow: 0 0 32px rgba(162,89,255,.3); }
+  .start-btn:active:not(:disabled) { transform: scale(.98); }
+  .start-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .start-btn.running { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+
   /* ── Timer hidden until configured ──────────────────────────────────────── */
   #timer-section { display: none; }
   #timer-section.show { display: flex; flex-direction: column; gap: 10px; }
@@ -220,8 +233,17 @@
     <!-- Status -->
     <div class="status-row">
       <div class="status-dot" id="status-dot"></div>
-      <div class="status-text" id="status-text">Enter a URL and target time to start.</div>
+      <div class="status-text" id="status-text">Enter a URL and target time, then hit Start.</div>
     </div>
+
+    <!-- Start button -->
+    <button class="start-btn" id="start-btn" onclick="handleStart()" disabled>
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <circle cx="9" cy="9" r="7.5" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M7 6l5 3-5 3V6Z" fill="currentColor"/>
+      </svg>
+      <span id="start-btn-text">Start Timer</span>
+    </button>
   </div>
 
   <!-- ── Timer section (shown once configured) ─────────────────────────────── -->
@@ -385,6 +407,8 @@ function parseConfig() {
   return { url, targetUTC, iv, lo, tz, ms, date, time };
 }
 
+let timerStarted = false;
+
 function onConfigChange() {
   const cfg = parseConfig();
 
@@ -399,14 +423,36 @@ function onConfigChange() {
     lo:   document.getElementById('load-offset').value,
   });
 
+  const startBtn = document.getElementById('start-btn');
+  const startBtnText = document.getElementById('start-btn-text');
+
   if (!cfg) {
-    setStatus('error', 'Fill in URL and target time.');
-    document.getElementById('timer-section').classList.remove('show');
-    if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
+    setStatus('', 'Enter a URL and target time, then hit Start.');
+    startBtn.disabled = true;
+    startBtn.classList.remove('running');
+    startBtnText.textContent = 'Start Timer';
+    // If already running, stop when config becomes invalid
+    if (timerStarted) {
+      timerStarted = false;
+      document.getElementById('timer-section').classList.remove('show');
+      if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
+    }
     return;
   }
 
-  // Apply config
+  // Config is valid — enable Start button
+  startBtn.disabled = false;
+
+  // If already running, update config live and reset counters
+  if (timerStarted) {
+    applyConfig(cfg);
+  } else {
+    setStatus('', 'Ready — click Start to begin the timer.');
+    startBtnText.textContent = 'Start Timer';
+  }
+}
+
+function applyConfig(cfg) {
   TARGET_URL    = cfg.url;
   TARGET_UTC    = cfg.targetUTC;
   INTERVAL_MS   = cfg.iv;
@@ -416,20 +462,31 @@ function onConfigChange() {
   document.getElementById('interval-label').textContent = (cfg.iv / 1000).toFixed(0);
   document.getElementById('url-display').textContent    = cfg.url.length > 80 ? cfg.url.slice(0,80)+'…' : cfg.url;
 
-  // Reset auto-fire state when config changes
   autoFired    = false;
   redirectDone = false;
   overlayShown = false;
   totalMsToOpen= null;
   lastOpenAt   = null;
   tlCounter    = 0;
+}
 
-  // Show timer
+function handleStart() {
+  const cfg = parseConfig();
+  if (!cfg) return;
+
+  timerStarted = true;
+  applyConfig(cfg);
+
+  const startBtn = document.getElementById('start-btn');
+  const startBtnText = document.getElementById('start-btn-text');
+  startBtn.classList.add('running');
+  startBtnText.textContent = '✓ Timer Running';
+
   document.getElementById('timer-section').classList.add('show');
 
-  // Start tick if not running
   if (!tickInterval) tickInterval = setInterval(tick, 25);
   tick();
+  addLog('▶ Timer started', 'fire');
 }
 
 // ── Status indicator ──────────────────────────────────────────────────────────
@@ -615,7 +672,7 @@ function tick() {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-// Trigger config check immediately (in case stored config is loaded)
+// Validate config on load so the Start button enables if stored config is present
 onConfigChange();
 </script>
 </body>

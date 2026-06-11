@@ -328,17 +328,20 @@ function saveStored(obj) {
   const s = loadStored();
   if (s.url)         document.getElementById('url-input').value    = s.url;
   if (s.date)        document.getElementById('target-date').value  = s.date;
-  if (s.time)        document.getElementById('target-time').value  = s.time;
   if (s.ms != null)  document.getElementById('target-ms').value    = s.ms;
   if (s.tz != null)  document.getElementById('tz-offset').value    = s.tz;
   if (s.iv != null)  document.getElementById('interval').value     = s.iv;
   if (s.lo != null)  document.getElementById('load-offset').value  = s.lo;
 
-  // Default date to today if empty
+  // Always default date to today and time to now
+  const now = new Date();
   if (!s.date) {
-    const today = new Date();
-    document.getElementById('target-date').value = today.toISOString().slice(0,10);
+    document.getElementById('target-date').value = now.toISOString().slice(0,10);
   }
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  const ss = String(now.getSeconds()).padStart(2,'0');
+  document.getElementById('target-time').value = hh+':'+mm+':'+ss;
 })();
 
 // ── Listen for config changes ─────────────────────────────────────────────────
@@ -416,7 +419,6 @@ function onConfigChange() {
   saveStored({
     url:  document.getElementById('url-input').value.trim(),
     date: document.getElementById('target-date').value,
-    time: document.getElementById('target-time').value,
     ms:   document.getElementById('target-ms').value,
     tz:   document.getElementById('tz-offset').value,
     iv:   document.getElementById('interval').value,

@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Queue Timer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #1a1a24;
+    --border: rgba(255,255,255,0.07);
+    --border-accent: rgba(162,89,255,0.35);
+    --purple: #a259ff;
+    --purple-dim: rgba(162,89,255,0.12);
+    --gold: #f0c040;
+    --gold-dim: rgba(240,192,64,0.1);
+    --green: #3dffa0;
+    --green-dim: rgba(61,255,160,0.1);
+    --red: #ff5f5f;
+    --text: #f0eef8;
+    --text-muted: rgba(240,238,248,0.45);
+    --text-dim: rgba(240,238,248,0.25);
+    --mono: 'Courier New', monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+
+  /* ── Redirect overlay ───────────────────────────────────────────────────── */
+  #redirect-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(10,10,15,.96);
+    backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease;
+  }
+  #redirect-overlay.visible { opacity: 1; pointer-events: all; }
+  .redir-label { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--text-dim); }
+  .redir-count { font-family: var(--mono); font-size: 80px; font-weight: 700; line-height: 1; color: var(--gold); }
+  .redir-count.go { color: var(--green); animation: pulse-go .3s ease-in-out infinite; }
+  @keyframes pulse-go { 0%,100%{transform:scale(1)}50%{transform:scale(1.04)} }
+  .redir-sub { font-size: 13px; color: var(--text-muted); text-align: center; line-height: 1.6; }
+  .redir-ring { width: 120px; height: 120px; border: 4px solid var(--surface2); border-top-color: var(--gold); border-radius: 50%; position: absolute; animation: spin .6s linear infinite; }
+  .redir-center { position: relative; display: flex; align-items: center; justify-content: center; width: 120px; height: 120px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Layout ─────────────────────────────────────────────────────────────── */
+  .header { width: 100%; text-align: center; padding: 24px 24px 12px; border-bottom: 0.5px solid var(--border); position: relative; overflow: hidden; }
+  .header::before { content:''; position:absolute; top:-60px; left:50%; transform:translateX(-50%); width:400px; height:200px; background:radial-gradient(ellipse,rgba(162,89,255,0.15) 0%,transparent 70%); pointer-events:none; }
+  .eyebrow { font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--purple); font-weight:500; margin-bottom:5px; }
+  .title { font-size:clamp(20px,5vw,30px); font-weight:700; letter-spacing:-.02em; background:linear-gradient(135deg,#fff 0%,#c9b0ff 60%,var(--gold) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+  .main { width:100%; max-width:640px; padding:14px 16px 40px; display:flex; flex-direction:column; gap:10px; }
+
+  .card { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); padding:15px 17px; }
+  .card.accent { border-color:var(--border-accent); background:linear-gradient(135deg,var(--surface) 0%,#14101e 100%); }
+  .card-row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+
+  .lbl { font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--text-dim); margin-bottom:5px; font-weight:500; }
+
+  /* ── Form inputs ─────────────────────────────────────────────────────────── */
+  .field {
+    width: 100%; background: var(--surface2); border: 0.5px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text); font-family: var(--mono);
+    font-size: 12px; padding: 9px 11px; outline: none; transition: border-color .15s;
+    appearance: none; -webkit-appearance: none;
+  }
+  .field:focus { border-color: var(--border-accent); }
+  .field::placeholder { color: var(--text-dim); }
+  textarea.field { resize: none; height: 60px; line-height: 1.5; }
+
+  .time-grid { display: grid; grid-template-columns: 1fr 1fr 72px 80px; gap: 8px; align-items: end; }
+  .adv-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; }
+  .field-label { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; letter-spacing: .06em; }
+
+  /* ── Advanced toggle ─────────────────────────────────────────────────────── */
+  .adv-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; margin-top: 10px; }
+  .adv-toggle span { font-size: 11px; color: var(--text-muted); letter-spacing: .06em; }
+  .chevron { font-size: 10px; color: var(--text-dim); transition: transform .2s; }
+  .chevron.open { transform: rotate(180deg); }
+  .adv-body { overflow: hidden; max-height: 0; transition: max-height .25s ease; }
+  .adv-body.open { max-height: 120px; }
+
+  /* ── Status badge ─────────────────────────────────────────────────────────── */
+  .status-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .status-dot.active { background: var(--green); animation: blink 1.2s ease-in-out infinite; }
+  .status-dot.warn   { background: var(--gold); }
+  .status-dot.error  { background: var(--red); }
+  .status-text { font-size: 11px; color: var(--text-muted); }
+  @keyframes blink { 0%,100%{opacity:1}50%{opacity:.3} }
+
+  /* ── Hero ─────────────────────────────────────────────────────────────────── */
+  .hero { text-align:center; padding:6px 0 10px; }
+  .hero-label { font-size:11px; letter-spacing:.15em; text-transform:uppercase; color:var(--text-dim); margin-bottom:8px; }
+  .hero-clock { font-family:var(--mono); font-size:52px; font-weight:700; letter-spacing:.04em; line-height:1; color:var(--gold); transition:color .3s; }
+  .hero-clock.urgent { color:var(--red); animation:pulse-red .5s ease-in-out infinite; }
+  .hero-clock.done   { color:var(--green); }
+  .hero-clock.idle   { color:var(--text-dim); }
+  @keyframes pulse-red { 0%,100%{opacity:1}50%{opacity:.6} }
+  .hero-sub { font-size:12px; color:var(--text-muted); margin-top:8px; line-height:1.6; }
+  .hero-sub strong { color:var(--text); }
+
+  .auto-badge { display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; padding:4px 10px; border-radius:100px; margin-top:10px; background:rgba(61,255,160,.08); color:var(--green); border:0.5px solid rgba(61,255,160,.25); }
+  .auto-badge .dot { background:var(--green); width:5px; height:5px; border-radius:50%; animation:blink 1s ease-in-out infinite; }
+
+  .prog-wrap { background:rgba(255,255,255,.06); border-radius:100px; height:4px; margin-top:12px; overflow:hidden; }
+  .prog-fill { height:100%; background:linear-gradient(90deg,var(--purple),var(--gold)); border-radius:100px; transition:width .05s linear; }
+
+  /* ── Stats ──────────────────────────────────────────────────────────────── */
+  .clock { font-family:var(--mono); font-weight:700; letter-spacing:.03em; line-height:1; }
+  .md    { font-size:18px; }
+  .purple { color:var(--purple); }
+  .gold   { color:var(--gold); }
+  .muted  { color:var(--text-muted); }
+
+  /* ── Timeline ───────────────────────────────────────────────────────────── */
+  .timeline { display:flex; gap:0; align-items:center; overflow-x:auto; padding:4px 0 2px; scrollbar-width:none; }
+  .timeline::-webkit-scrollbar { display:none; }
+  .tn { flex-shrink:0; font-family:var(--mono); font-size:10.5px; padding:4px 8px; border-radius:6px; white-space:nowrap; }
+  .tn-past   { background:var(--surface2); border:0.5px solid var(--border); color:var(--text-dim); text-decoration:line-through; }
+  .tn-open   { background:rgba(162,89,255,.12); border:0.5px solid var(--border-accent); color:var(--purple); }
+  .tn-normal { background:var(--surface2); border:0.5px solid var(--border); color:var(--text-muted); }
+  .tn-hit    { background:rgba(61,255,160,.1); border:0.5px solid rgba(61,255,160,.4); color:var(--green); font-weight:700; }
+  .ta { flex-shrink:0; color:var(--text-dim); padding:0 3px; font-size:12px; }
+
+  /* ── Button ─────────────────────────────────────────────────────────────── */
+  .open-btn { width:100%; padding:15px 20px; font-size:15px; font-weight:700; letter-spacing:.02em; cursor:pointer; border-radius:var(--radius-sm); border:2px solid var(--gold); background:var(--gold-dim); color:var(--gold); transition:background .15s,box-shadow .15s,transform .1s; display:flex; align-items:center; justify-content:center; gap:9px; }
+  .open-btn:hover:not(:disabled) { background:rgba(240,192,64,.2); box-shadow:0 0 28px rgba(240,192,64,.25); }
+  .open-btn:active:not(:disabled) { transform:scale(.98); }
+  .open-btn:disabled { opacity:.3; cursor:not-allowed; }
+  .open-btn.fired { border-color:var(--green); color:var(--green); background:var(--green-dim); }
+  .btn-hint { font-size:10px; color:var(--text-dim); text-align:center; margin-top:7px; }
+
+  /* ── Log ────────────────────────────────────────────────────────────────── */
+  .log-wrap { font-family:var(--mono); font-size:11px; color:var(--text-muted); max-height:80px; overflow-y:auto; background:var(--surface2); border-radius:var(--radius-sm); padding:8px 10px; border:0.5px solid var(--border); line-height:1.8; scrollbar-width:thin; }
+  .log-line { display:block; }
+  .lt { color:var(--purple); margin-right:5px; }
+  .lf { color:var(--green); }
+  .lw { color:var(--gold); }
+
+  .footer { font-size:11px; color:var(--text-dim); text-align:center; padding-bottom:8px; letter-spacing:.04em; }
+
+  /* ── Timer hidden until configured ──────────────────────────────────────── */
+  #timer-section { display: none; }
+  #timer-section.show { display: flex; flex-direction: column; gap: 10px; }
+</style>
+</head>
+<body>
+
+<!-- Redirect overlay -->
+<div id="redirect-overlay">
+  <div class="redir-label">Redirecting in</div>
+  <div class="redir-center">
+    <div class="redir-ring"></div>
+    <div class="redir-count" id="redir-count">5</div>
+  </div>
+  <div class="redir-sub">
+    Tab is navigating to your queue URL.<br>
+    <span style="color:var(--green);font-weight:600;">Keep this window focused.</span>
+  </div>
+</div>
+
+<div class="header">
+  <div class="eyebrow">Auto Redirect · Queue Timer</div>
+  <div class="title">Queue Timing Tool</div>
+</div>
+
+<div class="main">
+
+  <!-- ── Config card ───────────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="lbl">Queue URL</div>
+    <textarea class="field" id="url-input" placeholder="Paste your queue URL here…" spellcheck="false"></textarea>
+
+    <div style="margin-top:12px">
+      <div class="lbl">Target time (when queue opens)</div>
+      <div class="time-grid">
+        <div>
+          <div class="field-label">Date</div>
+          <input class="field" type="date" id="target-date">
+        </div>
+        <div>
+          <div class="field-label">Time (HH:MM:SS)</div>
+          <input class="field" type="time" id="target-time" step="1" placeholder="12:00:00">
+        </div>
+        <div>
+          <div class="field-label">.ms</div>
+          <input class="field" type="number" id="target-ms" min="0" max="999" placeholder="500" value="500">
+        </div>
+        <div>
+          <div class="field-label">UTC offset</div>
+          <input class="field" type="number" id="tz-offset" min="-12" max="14" step="0.5" placeholder="+7" value="7">
+        </div>
+      </div>
+    </div>
+
+    <!-- Advanced toggle -->
+    <div class="adv-toggle" onclick="toggleAdv()">
+      <span>Advanced</span>
+      <span class="chevron" id="adv-chevron">▼</span>
+    </div>
+    <div class="adv-body" id="adv-body">
+      <div class="adv-grid" style="margin-top:10px">
+        <div>
+          <div class="field-label">Poll interval (ms) — default 30000</div>
+          <input class="field" type="number" id="interval" value="30000" min="1000" step="1000">
+        </div>
+        <div>
+          <div class="field-label">Load offset (ms) — fires this early</div>
+          <input class="field" type="number" id="load-offset" value="1500" min="0" max="10000" step="100">
+        </div>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-row">
+      <div class="status-dot" id="status-dot"></div>
+      <div class="status-text" id="status-text">Enter a URL and target time to start.</div>
+    </div>
+  </div>
+
+  <!-- ── Timer section (shown once configured) ─────────────────────────────── -->
+  <div id="timer-section">
+
+    <!-- Hero countdown -->
+    <div class="card accent">
+      <div class="hero">
+        <div class="hero-label" id="hero-label">Redirect this tab in</div>
+        <div class="hero-clock idle" id="hero-clock">--:--.---</div>
+        <div class="hero-sub" id="hero-sub"></div>
+        <div class="auto-badge"><span class="dot"></span> Auto-redirect active</div>
+      </div>
+      <div class="prog-wrap"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card-row3">
+      <div class="card">
+        <div class="lbl">Local time now</div>
+        <div class="clock md purple" id="local-now">--:--:--</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Redirect at</div>
+        <div class="clock md gold" id="open-at">--:--:--</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Target opens in</div>
+        <div class="clock md muted" id="target-cd">--:--:--</div>
+      </div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="card">
+      <div class="lbl" style="margin-bottom:8px;">Refetch cycle (every <span id="interval-label">30</span>s from redirect)</div>
+      <div class="timeline" id="timeline"></div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:6px;">
+        <span style="color:var(--purple)">■</span> redirect moment &nbsp;
+        <span style="color:var(--green)">■</span> target hit &nbsp;
+        <span style="color:var(--text-dim)">■</span> future polls
+      </div>
+    </div>
+
+    <!-- Button -->
+    <div class="card">
+      <div class="lbl">Target URL</div>
+      <div class="log-wrap" id="url-display" style="max-height:40px;margin-bottom:12px;"></div>
+      <button class="open-btn" id="open-btn" onclick="fireRedirect()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M6.5 5.5l4 2.5-4 2.5V5.5Z" fill="currentColor"/>
+        </svg>
+        <span id="open-btn-text">Waiting for the right moment…</span>
+      </button>
+      <div class="btn-hint">This tab will auto-redirect — no click needed</div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <div class="lbl" style="margin-bottom:6px;">Event log</div>
+      <div class="log-wrap" id="log"></div>
+    </div>
+
+  </div><!-- /timer-section -->
+
+  <div class="footer">Open this tool on each device · each gets its own aligned cycle</div>
+</div>
+
+<script>
+// ── Persist / load config ────────────────────────────────────────────────────
+const STORAGE_KEY = 'qt-config-v1';
+
+function loadStored() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+}
+function saveStored(obj) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch {}
+}
+
+// ── Populate fields from storage ─────────────────────────────────────────────
+(function() {
+  const s = loadStored();
+  if (s.url)         document.getElementById('url-input').value    = s.url;
+  if (s.date)        document.getElementById('target-date').value  = s.date;
+  if (s.time)        document.getElementById('target-time').value  = s.time;
+  if (s.ms != null)  document.getElementById('target-ms').value    = s.ms;
+  if (s.tz != null)  document.getElementById('tz-offset').value    = s.tz;
+  if (s.iv != null)  document.getElementById('interval').value     = s.iv;
+  if (s.lo != null)  document.getElementById('load-offset').value  = s.lo;
+
+  // Default date to today if empty
+  if (!s.date) {
+    const today = new Date();
+    document.getElementById('target-date').value = today.toISOString().slice(0,10);
+  }
+})();
+
+// ── Listen for config changes ─────────────────────────────────────────────────
+['url-input','target-date','target-time','target-ms','tz-offset','interval','load-offset']
+  .forEach(id => document.getElementById(id).addEventListener('input', onConfigChange));
+
+// ── Advanced toggle ───────────────────────────────────────────────────────────
+function toggleAdv() {
+  document.getElementById('adv-body').classList.toggle('open');
+  document.getElementById('adv-chevron').classList.toggle('open');
+}
+
+// ── Runtime state ─────────────────────────────────────────────────────────────
+let TARGET_UTC   = null;
+let INTERVAL_MS  = 30000;
+let LOAD_OFFSET  = 1500;
+let TZ_OFFSET_MS = 7 * 3600000;
+let TARGET_URL   = '';
+
+let openAtUTC    = null;
+let totalMsToOpen= null;
+let autoFired    = false;
+let redirectDone = false;
+let overlayShown = false;
+let lastOpenAt   = null;
+let tlCounter    = 0;
+let tickInterval = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function pad(n)  { return String(Math.floor(n)).padStart(2,'0'); }
+function pad3(n) { return String(Math.floor(n)).padStart(3,'0'); }
+
+function fmtLocal(utcMs, showMs) {
+  const d = new Date(utcMs + TZ_OFFSET_MS);
+  const hh = pad(d.getUTCHours()), mm = pad(d.getUTCMinutes()), ss = pad(d.getUTCSeconds());
+  return showMs ? hh+':'+mm+':'+ss+'.'+pad3(d.getUTCMilliseconds()) : hh+':'+mm+':'+ss;
+}
+
+function fmtCd(ms) {
+  if (ms <= 0) return '00.000';
+  const m  = Math.floor(ms / 60000);
+  const s  = Math.floor((ms % 60000) / 1000);
+  const r  = ms % 1000;
+  if (m > 0) return pad(m)+':'+pad(s)+'.'+pad3(r);
+  return pad(s)+'.'+pad3(r)+'s';
+}
+
+// ── Config parsing ────────────────────────────────────────────────────────────
+function parseConfig() {
+  const url   = document.getElementById('url-input').value.trim();
+  const date  = document.getElementById('target-date').value;
+  const time  = document.getElementById('target-time').value;
+  const ms    = parseInt(document.getElementById('target-ms').value) || 0;
+  const tz    = parseFloat(document.getElementById('tz-offset').value) || 0;
+  const iv    = parseInt(document.getElementById('interval').value) || 30000;
+  const lo    = parseInt(document.getElementById('load-offset').value) ?? 1500;
+
+  if (!url || !date || !time) return null;
+
+  // Interpret date+time as the given UTC offset zone
+  const dateTimeStr = date + 'T' + (time.length === 5 ? time + ':00' : time);
+  const asUTC = new Date(dateTimeStr + 'Z').getTime();
+  if (isNaN(asUTC)) return null;
+
+  const targetUTC = asUTC - tz * 3600000 + ms;
+  return { url, targetUTC, iv, lo, tz, ms, date, time };
+}
+
+function onConfigChange() {
+  const cfg = parseConfig();
+
+  // Save to localStorage
+  saveStored({
+    url:  document.getElementById('url-input').value.trim(),
+    date: document.getElementById('target-date').value,
+    time: document.getElementById('target-time').value,
+    ms:   document.getElementById('target-ms').value,
+    tz:   document.getElementById('tz-offset').value,
+    iv:   document.getElementById('interval').value,
+    lo:   document.getElementById('load-offset').value,
+  });
+
+  if (!cfg) {
+    setStatus('error', 'Fill in URL and target time.');
+    document.getElementById('timer-section').classList.remove('show');
+    if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
+    return;
+  }
+
+  // Apply config
+  TARGET_URL    = cfg.url;
+  TARGET_UTC    = cfg.targetUTC;
+  INTERVAL_MS   = cfg.iv;
+  LOAD_OFFSET   = cfg.lo;
+  TZ_OFFSET_MS  = cfg.tz * 3600000;
+
+  document.getElementById('interval-label').textContent = (cfg.iv / 1000).toFixed(0);
+  document.getElementById('url-display').textContent    = cfg.url.length > 80 ? cfg.url.slice(0,80)+'…' : cfg.url;
+
+  // Reset auto-fire state when config changes
+  autoFired    = false;
+  redirectDone = false;
+  overlayShown = false;
+  totalMsToOpen= null;
+  lastOpenAt   = null;
+  tlCounter    = 0;
+
+  // Show timer
+  document.getElementById('timer-section').classList.add('show');
+
+  // Start tick if not running
+  if (!tickInterval) tickInterval = setInterval(tick, 25);
+  tick();
+}
+
+// ── Status indicator ──────────────────────────────────────────────────────────
+function setStatus(type, msg) {
+  const dot  = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  dot.className  = 'status-dot' + (type === 'active' ? ' active' : type === 'warn' ? ' warn' : type === 'error' ? ' error' : '');
+  text.textContent = msg;
+}
+
+// ── Core calc ─────────────────────────────────────────────────────────────────
+// openAt = TARGET_UTC - N * INTERVAL, adjusted back by LOAD_OFFSET
+// so the queue page is actually ready to poll AT openAt (not LOAD_OFFSET ms later)
+function calcOpenAt() {
+  const now = Date.now();
+  const msToTarget = TARGET_UTC - now;
+  if (msToTarget <= 0) return null;
+
+  const effective = TARGET_UTC - LOAD_OFFSET; // the moment we WANT the queue page to be alive
+  const msTillEff = effective - now;
+  if (msTillEff <= 0) return TARGET_UTC - LOAD_OFFSET; // already past; redirect now
+
+  const maxN = Math.floor((msTillEff - 500) / INTERVAL_MS);
+  if (maxN < 1) return effective; // very close, fire immediately
+
+  // Fire redirect at: effective - maxN * INTERVAL_MS
+  // so page loads at effective, polls fire at effective + N*INTERVAL → hits TARGET_UTC
+  return effective - maxN * INTERVAL_MS;
+}
+
+// ── Timeline ──────────────────────────────────────────────────────────────────
+function buildTimeline(openAt) {
+  const now = Date.now();
+  const cyclesNeeded = Math.round((TARGET_UTC - LOAD_OFFSET - openAt) / INTERVAL_MS);
+  const nodes = [];
+  for (let i = -2; i <= cyclesNeeded + 1; i++) {
+    const t = openAt + i * INTERVAL_MS;
+    nodes.push({ utc: t, isOpen: i === 0, isHit: i === cyclesNeeded, isPast: t < now });
+  }
+  return nodes;
+}
+
+function renderTimeline(openAt) {
+  const nodes = buildTimeline(openAt);
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = '';
+  nodes.forEach((n, i) => {
+    if (i > 0) {
+      const a = document.createElement('span');
+      a.className = 'ta'; a.textContent = '→'; tl.appendChild(a);
+    }
+    const el  = document.createElement('span');
+    const cls = n.isPast && !n.isOpen && !n.isHit ? 'tn-past'
+              : n.isOpen ? 'tn-open'
+              : n.isHit  ? 'tn-hit'
+              : 'tn-normal';
+    el.className  = 'tn ' + cls;
+    // For the hit node, show the actual poll time (openAt + N*interval + LOAD_OFFSET)
+    const displayT = n.isHit ? openAt + (nodes.indexOf(n) - 2) * INTERVAL_MS + LOAD_OFFSET : n.utc;
+    el.textContent = fmtLocal(n.isHit ? TARGET_UTC : n.utc, n.isHit || n.isOpen)
+                   + (n.isHit ? ' ★' : n.isOpen ? ' ←redirect' : '');
+    tl.appendChild(el);
+  });
+  const openEl = tl.querySelector('.tn-open');
+  if (openEl) openEl.scrollIntoView({ inline: 'center', behavior: 'smooth' });
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────────
+function addLog(msg, type) {
+  const el = document.getElementById('log');
+  const s  = document.createElement('span');
+  s.className = 'log-line';
+  const cls = type === 'fire' ? ' lf' : type === 'warn' ? ' lw' : '';
+  s.innerHTML = '<span class="lt">'+fmtLocal(Date.now(),true)+'</span><span class="'+cls.trim()+'">'+msg+'</span>';
+  el.appendChild(s);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Overlay ───────────────────────────────────────────────────────────────────
+function showOverlay(ms) {
+  if (!overlayShown) {
+    overlayShown = true;
+    document.getElementById('redirect-overlay').classList.add('visible');
+    addLog('⚡ Redirect imminent', 'warn');
+  }
+  const secs = Math.ceil(ms / 1000);
+  const el = document.getElementById('redir-count');
+  el.textContent  = secs <= 0 ? 'GO' : secs;
+  el.className    = 'redir-count' + (secs <= 1 ? ' go' : '');
+}
+
+// ── Fire ──────────────────────────────────────────────────────────────────────
+function fireRedirect() {
+  if (redirectDone || !TARGET_URL) return;
+  redirectDone = true;
+  const btn = document.getElementById('open-btn');
+  btn.disabled = true;
+  btn.classList.add('fired');
+  document.getElementById('open-btn-text').textContent = '✓ Redirecting…';
+  addLog('🚀 Redirect fired at ' + fmtLocal(Date.now(), true), 'fire');
+  setTimeout(() => { window.location.href = TARGET_URL; }, 80);
+}
+
+// ── Main tick ─────────────────────────────────────────────────────────────────
+function tick() {
+  if (!TARGET_UTC) return;
+
+  const now         = Date.now();
+  const msToTarget  = TARGET_UTC - now;
+  openAtUTC         = calcOpenAt();
+
+  document.getElementById('local-now').textContent  = fmtLocal(now);
+  document.getElementById('target-cd').textContent  = msToTarget > 0 ? fmtCd(msToTarget) : 'LIVE!';
+
+  if (!openAtUTC || (TARGET_UTC - now) <= 0) {
+    // Past or at target
+    document.getElementById('hero-clock').textContent = 'REDIRECT NOW';
+    document.getElementById('hero-clock').className   = 'hero-clock done';
+    document.getElementById('hero-label').textContent = 'Target is live!';
+    document.getElementById('hero-sub').textContent   = 'Redirecting immediately…';
+    document.getElementById('open-at').textContent    = fmtLocal(TARGET_UTC, true);
+    document.getElementById('open-btn-text').textContent = 'Redirect NOW';
+    document.getElementById('prog-fill').style.width  = '100%';
+    setStatus('active', 'Target reached — redirecting!');
+    if (!redirectDone && !autoFired) { autoFired = true; fireRedirect(); }
+    return;
+  }
+
+  const msToOpen = openAtUTC - now;
+  if (totalMsToOpen === null || msToOpen > totalMsToOpen) totalMsToOpen = msToOpen;
+
+  const heroEl  = document.getElementById('hero-clock');
+  const heroSub = document.getElementById('hero-sub');
+  const cyclesNeeded = Math.round((TARGET_UTC - LOAD_OFFSET - openAtUTC) / INTERVAL_MS);
+
+  document.getElementById('open-at').textContent = fmtLocal(openAtUTC, true);
+
+  if (msToOpen > 0) {
+    heroEl.textContent = fmtCd(msToOpen);
+    heroEl.className   = msToOpen < 5000 ? 'hero-clock urgent' : 'hero-clock';
+    document.getElementById('hero-label').textContent = 'Redirect this tab in';
+    heroSub.innerHTML  = 'Redirecting at <strong>'+fmtLocal(openAtUTC,true)+'</strong> · '
+                       + cyclesNeeded + ' polls × '+(INTERVAL_MS/1000)+'s → '
+                       + '<strong style="color:var(--green)">'+fmtLocal(TARGET_UTC,true)+'</strong>';
+
+    const pct = totalMsToOpen > 0 ? Math.min(100, ((totalMsToOpen - msToOpen) / totalMsToOpen) * 100) : 0;
+    document.getElementById('prog-fill').style.width = pct.toFixed(2)+'%';
+
+    if (!redirectDone) {
+      if (msToOpen <= 80) {
+        if (!autoFired) { autoFired = true; fireRedirect(); }
+      } else if (msToOpen <= 5000) {
+        showOverlay(msToOpen);
+        document.getElementById('open-btn-text').textContent = '🚀 Redirecting in '+fmtCd(msToOpen)+'…';
+        if (!autoFired) {
+          autoFired = true;
+          setTimeout(() => { if (!redirectDone) fireRedirect(); }, msToOpen - 80);
+        }
+      } else if (msToOpen < 15000) {
+        document.getElementById('open-btn-text').textContent = '⚡ Redirecting in '+fmtCd(msToOpen)+' — get ready!';
+      } else {
+        document.getElementById('open-btn-text').textContent = 'Auto-redirects in '+fmtCd(msToOpen);
+      }
+    }
+
+    setStatus('active', 'Timer running · redirect at ' + fmtLocal(openAtUTC, true));
+
+    tlCounter++;
+    if (tlCounter % 40 === 0 || openAtUTC !== lastOpenAt) {
+      renderTimeline(openAtUTC);
+      lastOpenAt = openAtUTC;
+    }
+
+  } else {
+    // Past open moment but before target
+    heroEl.textContent  = 'Redirected ✓';
+    heroEl.className    = 'hero-clock done';
+    document.getElementById('hero-label').textContent = 'Polling cycle active';
+    heroSub.innerHTML   = 'Next refetch target: <strong style="color:var(--green)">'+fmtLocal(TARGET_UTC,true)+'</strong>';
+    document.getElementById('prog-fill').style.width  = '100%';
+    setStatus('active', 'Redirected — polling cycle running');
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+// Trigger config check immediately (in case stored config is loaded)
+onConfigChange();
+</script>
+</body>
+</html>
